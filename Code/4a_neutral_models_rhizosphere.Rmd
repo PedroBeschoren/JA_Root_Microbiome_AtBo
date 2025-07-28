@@ -1,0 +1,1395 @@
+---
+title: "4a_neutral_models_rhizosphere"
+author: "Pedro"
+date: "9/17/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+# load libraries and data
+```{r}
+source("./Code/Functions/load_libraries.R")
+load("./R output/analysis_session.RData")
+```
+
+
+
+## 4a.0  Neutral models on lists of comparisons
+
+Comparing neutral models will take several different views on different slices of data. the following code serves as a base to evaluate a data split. It generates the base neutral model plots, and also graphical summaries of both neutral model fit for every slice and percentages of fit classes for every data slice. finally, the input list lements receive the fit classes of each list element as a taxa classification
+
+### 4a.1 Settings for plotting 
+
+```{r}
+# settings for plotting
+
+# colors & treatments
+MeJA_treatment_pal <- c("#FBF2C4", "#DEA868", "#C7522B", "#9BBAA0")
+names(MeJA_treatment_pal) <- c("Control", "0.1 mM MeJA", "1 mM MeJA", "P. brassicae OS")
+
+Sample_Type_pal <- c("Endosphere" = "#e7b083ff", "Rhizosphere" = "#905423ff")
+
+Prediction_pal <- c("#FFC857", "#073B4C", "#05B083", "#FFC857", "#073B4C", "#05B083")
+
+names(Prediction_pal) <- c("Above_Prediction", "As_Predicted", "Below_Prediction", "Above prediction", "As predicted", "Below prediction")
+
+Species_shape_pal <- c(
+  "A. thaliana" = 3,
+  "B. oleracea" = 21
+)
+
+# theme
+# Set axis looks
+theme_set(theme_bw())
+axis_looks <- theme(axis.text.x = element_text(
+  colour = "black", size = 9,
+  face = "bold", angle = 0, hjust = 0.5
+)) +
+  theme(axis.text.y = element_text(colour = "black", size = 9, face = "bold")) +
+  theme(axis.title = element_text(size = 11, face = "bold")) +
+  theme(axis.title.y = element_text(margin = ggplot2::margin(t = 0, r = 10, b = 0, l = 0))) +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  ) +
+  theme(legend.position = "none") +
+  theme(
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank()
+  ) +
+  theme(axis.line = element_line(
+    colour = "black",
+    size = 0.8, linetype = "solid"
+  ))
+
+treatment_names <- c(
+  "control" = "Control", "MeJA_0.1" = "0.1 mM \n MeJA",
+  "MeJA_1.0" = "1 mM \n MeJA", "oral_secretion" = "P. brassicae \n OS"
+)
+```
+
+MA - Changing `plot_scnm_fit` function of TyRA package to pimp the plot 
+```{r}
+# Changing `plot_scnm_fit` function of TyRA package to pimp the plot
+
+plot_sncm_fit2 <- function(spp_out = spp_out, fill = NULL, title = NULL) {
+  tax_levels <- colnames(spp_out$predictions)[7:length(colnames(spp_out$predictions)) -
+    1]
+  if (is.null(fill)) {
+    fill <- "fit_class"
+  }
+  r2_val <- paste("r^2 ==", round(spp_out$fitstats$Rsqr, 2))
+  m_val <- paste("m ==", round(spp_out$fitstats$m, 2))
+  df <- data.frame(t(table(spp_out$predictions$fit_class)))
+  df <- df[, c(2, 3)]
+  colnames(df) <- c("Prediction", "AVS Abundance")
+  p <- ggplot(data = spp_out$predictions)
+  if (fill == "fit_class") {
+    p <- p + geom_point(aes(x = log(p), y = freq, fill = eval(parse(text = fill))),
+      shape = 21, color = "black", size = 3, alpha = 0.75
+    ) + theme_classic()
+
+    p <- p + scale_fill_manual(name = "Prediction", values = c(
+      `Above prediction` = "#009e73ff",
+      `As predicted` = "gray", `Below prediction` = "#e3a117ff",
+      `NA` = "white"
+    ), breaks = c(
+      "Above prediction",
+      "As predicted", "Below prediction", "NA"
+    ), labels = c(
+      paste0(
+        "Above prediction (",
+        round(
+          (df[1, 2] / spp_out$fitstats$Richness) * 100,
+          1
+        ), "%)"
+      ), paste0("As predicted (", round((df[
+        2,
+        2
+      ] / spp_out$fitstats$Richness) * 100, 1), "%)"),
+      paste0("Below Prediction (", round((df[3, 2] / spp_out$fitstats$Richness) *
+        100, 1), "%)"), paste0("NA (", df[4, 2], ")")
+    ))
+  } else if (fill %in% tax_levels) {
+    p <- p + geom_point(aes(x = log(p), y = freq, fill = eval(parse(text = fill))),
+      shape = 21, color = "black", size = 2.5, alpha = 0.75
+    )
+    p <- p + scale_fill_discrete(name = "Taxon")
+  } else {
+    print(paste0("fill variable: ", fill, " is not a valid taxonomic level or fit_class"))
+  }
+  p <- p + geom_line(aes(x = log(p), y = freq.pred), color = "black", size = 0.8)
+  p <- p + geom_line(aes(x = log(p), y = pred.lwr),
+    color = "black", size = 0.8,
+    linetype = "dashed"
+  )
+  p <- p + geom_line(aes(x = log(p), y = pred.upr),
+    color = "black", size = 0.8,
+    linetype = "dashed"
+  )
+  p <- p + geom_ribbon(aes(x = log(p), ymin = pred.lwr, ymax = pred.upr), fill = "grey", alpha = 0.3)
+  p <- p + theme(axis.line = element_line(size = 0.8))
+  p <- p + theme(axis.text = element_text(size = 10))
+  p <- p + theme(axis.title = element_text(size = 13))
+  p <- p + xlab("log(Mean Relative Abundance)")
+  p <- p + ylab("Ocurrence Frequency")
+  p <- p + ggtitle(title)
+  p <- p + annotate("text", x = mean(log(spp_out$predictions$p),
+    na.rm = TRUE
+  ), y = 0.95, size = 8, face = "bold", label = r2_val, parse = TRUE)
+  p <- p + annotate("text", x = mean(log(spp_out$predictions$p),
+    na.rm = TRUE
+  ), y = 0.85, size = 8, face = "bold", label = m_val, parse = TRUE)
+  return(p)
+}
+```
+
+
+# 4a.6 one model for each BO_soil treatment, using all BO_soil samples as a pool
+
+### 4a.6.1 make new physeq object and neutral models
+```{r}
+
+# first, we get out list of 4 phyloseq objects and split it further according to treatment
+ps_list_treat <- lapply(ps_list_rarefied, function(x) {
+  phyloseq_sep_variable(x, variable = "MeJA_treatment")
+})
+
+
+
+# Now, make a list of neutral models with one model for every treatment
+neutral_list_BO_soil <- lapply(ps_list_treat$Brassica_oleraceae.Soil, function(x) {
+  tyRa::fit_sncm(
+    spp = t(otu_table(x)),
+    pool = t(otu_table(ps_list_rarefied$Brassica_oleraceae.Soil)), # Pool acts as a source of microbes, such as full bulk soil diversity. if NULL, you use the input taxa table as the pool for every individual sample inside your phyloseq object
+    taxon = data.frame(tax_table(x))
+  )
+})
+
+```
+
+### 4a.6.2 check metrics of BO_soil neutral models
+
+```{r}
+
+#### now, R², m and fit class percentage metrics can be extracted
+
+# fit stats of all neutral models, keeps only M and Rsqure of that list
+fitstats_listed_BO_soil <- lapply(neutral_list_BO_soil, function(x) {
+  x$fitstats[c(1, 4)]
+})
+```
+
+### 4a.6.3 check distribution of the different classes across your listed phyloseq objects
+
+This facilitates comparison of multiple different models
+
+```{r}
+
+
+## now, to quickly visualize all the fit_class predictions
+
+# lists predictions of all neutral models, keeps only the fit class and the OTU ID
+predictions_listed_BO_soil <- lapply(neutral_list_BO_soil, function(x) {
+  x$predictions[14]
+})
+
+# make a list of tibles, including percentage of each fit class
+list_tibble <- lapply(predictions_listed_BO_soil, function(x) {
+  x %>%
+    group_by(fit_class) %>%
+    dplyr::summarize(count = n()) %>%
+    mutate(total = sum(count)) %>%
+    mutate(percentage = count / total * 100)
+})
+
+# collects names of the tibbles in the list
+tibble_names <- names(list_tibble)
+
+# puts name of the neutral model data slice as a variable
+named_tibble_list_BO <- mapply(function(x, y) {
+  mutate(x, data_slice = y)
+},
+list_tibble, tibble_names,
+SIMPLIFY = FALSE
+)
+```
+
+#### 4a.6.4 Add neutral fit classes of OTUs to your original phyloseq objects
+
+
+finally let's add the  fit class as a taxonomy value of the main phyloseq object Note that the same OTU bay have different fit classes in different slices of the data. beware if trying to put all fit classes into a single phyloseq object!
+
+```{r}
+
+# transforms the fit_class definition into a listed phyloseq object
+fit_class_ps_list_BO_soil <- lapply(predictions_listed_BO_soil, function(x) tax_table(as.matrix(x)))
+
+# add fit_class definition to the main (listed) phyloseq object
+ps_list_neutral_BO_soil <- mapply(function(x, y) {
+  tax_table(x) <- merge_phyloseq(x, y)
+},
+ps_list_treat$Brassica_oleraceae.Soil, fit_class_ps_list_BO_soil,
+SIMPLIFY = FALSE
+)
+
+# check if your fit class now show in the taxonomy of your new physeq object
+head(tax_table(ps_list_neutral_BO_soil$control))
+```
+
+#### 4a.6.5 select only one of the fit classes in BO_soil, then merge the 4 treatment split
+
+```{r}
+# get a list of phyloseq objects (separated by treatment) that have the neutral model definitions in the taxa table (above/predicted/below) and turn it into 3 phyloseq objects of all taxa occuring above, as predicted or below
+subset_ps_above_neutral_below <- function(ps_l_predictions_in_taxtable, ps_CSS_partition) {
+
+  # First, amke a new phyloseq object containing only the OTUs occuring above prediction
+  model_above <- lapply(ps_l_predictions_in_taxtable, function(x) subset_taxa(x, fit_class == "Above prediction"))
+
+  model_asPredicted <- lapply(ps_l_predictions_in_taxtable, function(x) subset_taxa(x, fit_class == "As predicted"))
+
+  model_below <- lapply(ps_l_predictions_in_taxtable, function(x) subset_taxa(x, fit_class == "Below prediction"))
+
+
+  # make lists of lists so these 3 sets can be processed at the same time
+  model_list <- list(model_above, model_asPredicted, model_below)
+
+
+  # make list of asv names
+  output_ps_l <- lapply(model_list, function(z) {
+    asv_names <- lapply(z, function(w) {
+      taxa_names(w)
+    })
+
+    # turn list into single vector wihtout repeated ASV names
+    asv_names <- unique(purrr::reduce(asv_names, c))
+
+    # ps object, based on a subset of CSS normalization (same normalization used on full data. if we re-calculate CSS normalization, we add more variation in the process but the end results are very similar. if we take a subset of the rarefied taxa or re-rarefy the unormalized data, explained variance drops, and comparison with the full dataset is compromised because it was based on CSS data)
+
+    output_ps <- prune_taxa(asv_names, ps_CSS_partition)
+
+
+    return(output_ps)
+  })
+
+  # get plant species and sample type. you will need to change this code using this funciton on your on datasets!
+  sp_sample <- paste(ps_CSS_partition@sam_data$Plant_species[1], ps_CSS_partition@sam_data$Sample_type[1], sep = ".")
+
+  # change names of output object
+  names(output_ps_l) <- c(
+    paste(sp_sample, "above", sep = "."),
+    paste(sp_sample, "predicted", sep = "."),
+    paste(sp_sample, "below", sep = ".")
+  )
+
+
+  return(output_ps_l)
+}
+
+
+# execute the custom function above on BO soil samples
+BO_soil_predicted_list <- subset_ps_above_neutral_below(
+  ps_l_predictions_in_taxtable = ps_list_neutral_BO_soil,
+  ps_CSS_partition = ps_list_CSS$Brassica_oleraceae.Soil
+)
+```
+
+####  4a.6.6 check stats of treatment effects on each subcommunity
+
+```{r}
+# beta dispersion
+dip_result_BO <- beta_disp_plotAndTest(BO_soil_predicted_list, "MeJA_treatment")
+
+# Permanova
+set.seed(5235)
+permanova_with_blocks(BO_soil_predicted_list, "MeJA_treatment + Block")
+
+# pairwise tests
+set.seed(5235)
+lapply(BO_soil_predicted_list, function(x) {
+  adonis.pair(
+    dist.mat = phyloseq::distance(otu_table(x), method = "bray"),
+    Factor = as.factor(as(phyloseq::sample_data(x), "data.frame")$MeJA_treatment)
+  )
+})
+```
+
+
+
+
+# 4a.7 one model for each AT_soil treatment, using all AT_soil samples as a pool
+
+### 4a.7.1 make new physeq object and neutral models
+
+```{r}
+
+# first, we get out list of 4 phyloseq objects and split it further according to treatment
+ps_list_treat <- lapply(ps_list_rarefied, function(x) {
+  phyloseq_sep_variable(x, variable = "MeJA_treatment")
+})
+
+
+
+
+############### This is a list fot AT_soil to use later...
+# makes a list of neutral models, according the data splits of your ps_list
+neutral_list_AT_soil <- lapply(ps_list_treat$Arabidopsis_thaliana.Soil, function(x) {
+  tyRa::fit_sncm(
+    spp = t(otu_table(x)),
+    pool = t(otu_table(ps_list_rarefied$Arabidopsis_thaliana.Soil)), # Pool acts as a source of microbes, such as full bulk soil diversity. if NULL, you use the input taxa talbe as the pool for every individual sample inside your phyloseq object
+    taxon = data.frame(tax_table(x))
+  )
+})
+
+# names for the plots
+plot_titles <- names(neutral_list_AT_soil)
+
+# one plot for each list element
+Neutral_plots_list_AT_soil <- mapply(function(x, y) {
+  plot_sncm_fit2(x, title = y) +
+    theme(axis.title = element_text(face = "bold")) +
+    theme(axis.text = element_text(face = "bold", colour = "black")) +
+    theme(legend.position = "none")
+},
+neutral_list_AT_soil, plot_titles,
+SIMPLIFY = FALSE
+)
+########################
+
+
+# arrange 4 plots in 1 figure
+Neutral_plots_list_AT_soil_g <- ggarrange(Neutral_plots_list_AT_soil$control,
+  Neutral_plots_list_AT_soil$MeJA_0.1,
+  Neutral_plots_list_AT_soil$MeJA_1.0,
+  Neutral_plots_list_AT_soil$oral_secretion,
+  ncol = 2, nrow = 2
+)
+
+# save plots
+ggsave(Neutral_plots_list_AT_soil_g,
+  height = 9, width = 12,
+  file = "./R output/Figures_for_publication/NeutralModels_AT.svg"
+)
+```
+
+### 4a.7.2 check metrics of AT_soil neutral models
+R², m and fit class percentage metrics can be extracted 
+```{r}
+
+# fit stats of all neutral models, keeps only M and Rsqure of that list
+fitstats_listed_AT_soil <- lapply(neutral_list_AT_soil, function(x) {
+  x$fitstats[c(1, 4)]
+})
+```
+
+### 4a.7.3 check distribution of the different classes across your listed phyloseq objects
+
+quickly visualize all the fit_class predictions
+
+```{r}
+
+
+# lists predictions of all neutral models, keeps only the fit class and the OTU ID
+predictions_listed_AT_soil <- lapply(neutral_list_AT_soil, function(x) {
+  x$predictions[14]
+})
+
+# make a list of tibles, including percentage of each fit class
+list_tibble <- lapply(predictions_listed_AT_soil, function(x) {
+  x %>%
+    group_by(fit_class) %>%
+    dplyr::summarize(count = n()) %>%
+    mutate(total = sum(count)) %>%
+    mutate(percentage = count / total * 100)
+})
+
+# collects names of the tibbles in the list
+tibble_names <- names(list_tibble)
+
+# puts name of the neutral model data slice as a variable
+named_tibble_list_AT <- mapply(function(x, y) {
+  mutate(x, data_slice = y)
+},
+list_tibble, tibble_names,
+SIMPLIFY = FALSE
+)
+```
+
+
+#### 4a.7.4 Add neutral fit classes of OTUs to your original phyloseq objects
+
+```{r}
+
+# transforms the fit_class definition into a listed phyloseq object
+fit_class_ps_list_AT_soil <- lapply(predictions_listed_AT_soil, function(x) tax_table(as.matrix(x)))
+
+# add fit_class definition to the main (listed) phyloseq object
+ps_list_neutral_AT_soil <- mapply(function(x, y) {
+  tax_table(x) <- merge_phyloseq(x, y)
+},
+ps_list_treat$Arabidopsis_thaliana.Soil, fit_class_ps_list_AT_soil,
+SIMPLIFY = FALSE
+)
+
+# check if your fit class now show in the taxonomy of your new physeq object
+head(tax_table(ps_list_neutral_AT_soil$control))
+```
+
+#### 4a.7.5 select only one of the fit classes in AT_soil, then merge the 4 treatment split
+
+```{r}
+# get a list of phyloseq objects (separated by treatment) that have the neutral model definitions in the taxa table (above/predicted/below) and turn it into 3 phyloseq objects of all taxa occuring above, as predicted or below
+subset_ps_above_neutral_below <- function(ps_l_predictions_in_taxtable, ps_CSS_partition) {
+
+  # First, amke a new phyloseq object containing only the OTUs occuring above prediction
+  model_above <- lapply(ps_l_predictions_in_taxtable, function(x) subset_taxa(x, fit_class == "Above prediction"))
+
+  model_asPredicted <- lapply(ps_l_predictions_in_taxtable, function(x) subset_taxa(x, fit_class == "As predicted"))
+
+  model_below <- lapply(ps_l_predictions_in_taxtable, function(x) subset_taxa(x, fit_class == "Below prediction"))
+
+
+  # make lists of lists so these 3 sets can be processed at the same time
+  model_list <- list(model_above, model_asPredicted, model_below)
+
+
+  # make list of asv names
+  output_ps_l <- lapply(model_list, function(z) {
+    asv_names <- lapply(z, function(w) {
+      taxa_names(w)
+    })
+
+    # turn list into single vector wihtout repeated ASV names
+    asv_names <- unique(purrr::reduce(asv_names, c))
+
+    # ps object, based on a subset of CSS normalization (same normalization used on full data. if we re-calculate CSS normalization, we add more variation in the process but the end results are very similar. if we take a subset of the rarefied taxa or re-rarefy the unormalized data, explained variance drops, and comparison with the full dataset is compromised because it was based on CSS data)
+
+    output_ps <- prune_taxa(asv_names, ps_CSS_partition)
+
+
+    return(output_ps)
+  })
+
+  # get plant species and sample type. you will need to change this code using this funciton on your on datasets!
+  sp_sample <- paste(ps_CSS_partition@sam_data$Plant_species[1], ps_CSS_partition@sam_data$Sample_type[1], sep = ".")
+
+  # change names of output object
+  names(output_ps_l) <- c(
+    paste(sp_sample, "above", sep = "."),
+    paste(sp_sample, "predicted", sep = "."),
+    paste(sp_sample, "below", sep = ".")
+  )
+
+
+  return(output_ps_l)
+}
+
+
+# execute the custom function above on BO soil samples
+AT_soil_predicted_list <- subset_ps_above_neutral_below(
+  ps_l_predictions_in_taxtable = ps_list_neutral_AT_soil,
+  ps_CSS_partition = ps_list_CSS$Arabidopsis_thaliana.Soil
+)
+```
+
+#### 4a.7.6 check stats of treatment effects on each subcommunity
+
+NOTE: EcoUtils::adonispair() may give an error "attempt to set 'colnames' on an object with less than two dimensions". it happens after running the function a second time. if this happens, refresh session and reload, skipping the first run.
+
+```{r}
+# beta dispersion
+dip_result_AT <- beta_disp_plotAndTest(AT_soil_predicted_list, "MeJA_treatment")
+
+
+
+# Permanova
+set.seed(5235)
+permanova_with_blocks(AT_soil_predicted_list, "MeJA_treatment + Block")
+
+# pairwise tests
+set.seed(5235)
+lapply(AT_soil_predicted_list, function(x) {
+  adonis.pair(
+    dist.mat = phyloseq::distance(otu_table(x), method = "bray"),
+    Factor = as.factor(as(phyloseq::sample_data(x), "data.frame")$MeJA_treatment)
+  )
+})
+```
+
+
+
+
+# 4a.8 Join neutral class partitions back together to check possible artefacts
+
+
+```{r}
+
+
+# First, amke a new phyloseq object containing only the OTUs occuring above prediction
+BO_4_model_above <- lapply(ps_list_neutral_BO_soil, function(x) subset_taxa(x, fit_class == "Above prediction"))
+
+BO_4_model_asPredicted <- lapply(ps_list_neutral_BO_soil, function(x) subset_taxa(x, fit_class == "As predicted"))
+
+BO_4_model_below <- lapply(ps_list_neutral_BO_soil, function(x) subset_taxa(x, fit_class == "Below prediction"))
+```
+
+
+# 4a.9 check for artefacts in the methodology
+
+
+One possible criticism for this aporach is that we are seriously biasing the ordinations by drawing OTUS from a subset of the data before comparing subsets of the data
+
+we should then draw X random OTUS (instead of those X selected by the neutral models) and check ordinations/permanova results. we perform this several times, and check the output witht the real data
+
+
+### 4a.9.1 run 1000 permanovas on randomly selected OTUs - here, we take teh random otus from inside each tretment and later join them, instead of simply collecing X otus from the full table
+
+
+```{r}
+
+# define function
+thousand_permanovas_on_random_otu <- function(CSS_fraction, ps_4_model_l) {
+  # the input is one of the 4-split fraction of the CSS-normalized phyloseq object as the first argument
+  # the second argument is the phyloseq object containing only the OTUs classified as above expected
+  # The output is a list of 1000 permanovas
+
+  # Set seed for consistency
+  set.seed(92342347)
+
+  # collect a list of random OTUS, 100 times
+  rand_otu_control <- replicate(1000, sample(taxa_names(subset_samples(CSS_fraction, MeJA_treatment == "control")), nrow(tax_table(ps_4_model_l[[1]])), replace = FALSE)) # performs randomization operation 100 times
+
+  rand_otu_MeJA_0.1 <- replicate(1000, sample(taxa_names(subset_samples(CSS_fraction, MeJA_treatment == "MeJA_0.1")), nrow(tax_table(ps_4_model_l[[2]])), replace = FALSE)) # performs randomization operation 100 times
+
+  rand_otu_MeJA_1.0 <- replicate(1000, sample(taxa_names(subset_samples(CSS_fraction, MeJA_treatment == "MeJA_1.0")), nrow(tax_table(ps_4_model_l[[3]])), replace = FALSE))
+
+  rand_otu_oral_scretion <- replicate(1000, sample(taxa_names(subset_samples(CSS_fraction, MeJA_treatment == "oral_secretion")), nrow(tax_table(ps_4_model_l[[4]])), replace = FALSE))
+
+
+
+
+  # turn the n_rows x 1000df into a list of 1000 vectors
+  Rand_otus_control_lists <- list() # make empty list
+  for (i in 1:ncol(rand_otu_control)) { # Using for-loop to add columns to list
+    Rand_otus_control_lists[[i]] <- rand_otu_control[, i]
+  }
+
+  Rand_otus_meja01_lists <- list() # make empty list
+  for (i in 1:ncol(rand_otu_MeJA_0.1)) { # Using for-loop to add columns to list
+    Rand_otus_meja01_lists[[i]] <- rand_otu_MeJA_0.1[, i]
+  }
+
+  Rand_otus_meja10_lists <- list() # make empty list
+  for (i in 1:ncol(rand_otu_MeJA_1.0)) { # Using for-loop to add columns to list
+    Rand_otus_meja10_lists[[i]] <- rand_otu_MeJA_1.0[, i]
+  }
+
+  Rand_otus_oral_lists <- list() # make empty list
+  for (i in 1:ncol(rand_otu_oral_scretion)) { # Using for-loop to add columns to list
+    Rand_otus_oral_lists[[i]] <- rand_otu_oral_scretion[, i]
+  }
+
+
+  # merge ASV
+  merged_100_asv_names <- mapply(function(z, x, y, w) {
+    unique(c(z, x, y, w))
+  },
+  x = Rand_otus_control_lists,
+  z = Rand_otus_meja01_lists,
+  y = Rand_otus_meja10_lists,
+  w = Rand_otus_oral_lists,
+  SIMPLIFY = FALSE
+  )
+
+
+
+
+
+  # make 1000 phyloseq objects with the same number of OTUs as the above_selected models
+  list_100_phyloseqs <- lapply(merged_100_asv_names, function(x) {
+    prune_taxa(x, CSS_fraction)
+  })
+
+  # run 100 permanovas
+  set.seed(9247)
+  permanovas_100 <- permanova_with_blocks(list_100_phyloseqs, "MeJA_treatment + Block")
+
+  return(permanovas_100)
+}
+
+# increases memory limit used by R
+memory.limit(size = 350000)
+
+# make a new phyloseq object containing only the OTUs occuring above prediction
+BO_4_model_above_soil <- lapply(ps_list_neutral_BO_soil, function(x) subset_taxa(x, fit_class == "Above prediction"))
+AT_4_model_above_soil <- lapply(ps_list_neutral_AT_soil, function(x) subset_taxa(x, fit_class == "Above prediction"))
+
+
+# now, make the 100 permanovas on random sets of OTUs, using a total number of OTUs equal to the OTUs selected as above aoccurence
+permanovas_BO_100 <- thousand_permanovas_on_random_otu(
+  CSS_fraction = ps_list_CSS$Brassica_oleraceae.Soil,
+  ps_4_model_l = BO_4_model_above_soil
+)
+permanovas_AT_100 <- thousand_permanovas_on_random_otu(
+  CSS_fraction = ps_list_CSS$Arabidopsis_thaliana.Soil,
+  ps_4_model_l = AT_4_model_above_soil
+)
+```
+
+
+
+#### 4a.9.2 acess the P, F and R2 values of the 1000 permanovas for each species, then put it into a single object for both species
+
+
+
+```{r}
+
+
+# now let's take the P and R2 values for MeJA effects
+p_values_list_BO <- map(permanovas_BO_100, 5) # p values for MeJA_treatment and block
+p_values_MeJA_vector_BO <- unlist(map(p_values_list_BO, 1)) # p values for MeJA_treatment and block
+
+R2_list_BO <- map(permanovas_BO_100, 3) # R2 for MeJA_treatment, Block, residual, and total
+R2_MeJA_vector_BO <- unlist(map(R2_list_BO, 1)) # R2 values for residual
+
+F_value_list_BO <- map(permanovas_BO_100, 4) # F_value for MeJA_treatment, Block, residual, and total
+F_value_vector_BO <- unlist(map(F_value_list_BO, 1)) # F_value values for residual
+
+p_values_list_AT <- map(permanovas_AT_100, 5) # p values for MeJA_treatment and block
+p_values_MeJA_vector_AT <- unlist(map(p_values_list_AT, 1)) # p values for MeJA_treatment and block
+
+R2_list_AT <- map(permanovas_AT_100, 3) # R2 for MeJA_treatment, Block, residual, and total
+R2_MeJA_vector_AT <- unlist(map(R2_list_AT, 1))
+
+F_value_list_AT <- map(permanovas_AT_100, 4) # F_value for MeJA_treatment, Block, residual, and total
+F_value_vector_AT <- unlist(map(F_value_list_AT, 1)) # F_value values for residual
+
+# put it all in a single df
+hundrerd_permanovas_pr2 <- data.frame(p_values_MeJA_vector_AT, p_values_MeJA_vector_BO, R2_MeJA_vector_AT, R2_MeJA_vector_BO, F_value_vector_AT, F_value_vector_BO)
+```
+
+#### 4a.9.3 get summary statistics of the 1000 the P, F and R2 values
+
+
+```{r}
+# prepare a list of fucntions to sapply our joint dataframe to
+sapply_listed_functions <- function(x) {
+  list(max(x), mean(x), min(x), sd(x), median(x))
+}
+
+# sapply to get the quantifications.this shows summary statistics for the permanova tests
+sapply(hundrerd_permanovas_pr2, FUN = sapply_listed_functions)
+
+# lets count the number of tests with p<0.05
+length(which(hundrerd_permanovas_pr2$p_values_MeJA_vector_AT < 0.05))
+length(which(hundrerd_permanovas_pr2$p_values_MeJA_vector_BO < 0.05))
+
+
+# compare with the real results of the neutraliy selected otus
+set.seed(5235)
+permanova_BO_above <- permanova_with_blocks(BO_soil_predicted_list, "MeJA_treatment + Block")$Brassica_oleraceae.Soil.above
+set.seed(5235)
+permanova_AT_above <- permanova_with_blocks(AT_soil_predicted_list, "MeJA_treatment + Block")$Arabidopsis_thaliana.Soil.above
+
+# also compare it to the full dataset without any OTU selection
+set.seed(5235)
+full_feature_permanova <- permanova_with_blocks(ps_list_CSS, "MeJA_treatment + Block")
+```
+
+
+#### 4a.9.4 plot histograms of F, R2 and P values for the full dataset, neutrally selected OTUs, and random OTUs
+
+
+##### 4a.9.5 prepare dataframe
+
+Ploting the histograms gives a more intuitive view. This code is really bad and ugly - repetitive, based on copy-pasting. Pedro won't change it for now
+
+```{r}
+
+
+########################## will this let us make nice histograms?
+# now let's take the P and R2 values for MeJA effects
+p_values_list_BO <- map(permanovas_BO_100, 5) # p values for MeJA_treatment and block
+p_values_MeJA_vector_BO <- data.frame(unlist(map(p_values_list_BO, 1))) # p values for MeJA_treatment and block
+
+R2_list_BO <- map(permanovas_BO_100, 3) # R2 for MeJA_treatment, Block, residual, and total
+R2_MeJA_vector_BO <- data.frame(unlist(map(R2_list_BO, 1))) # R2 values for residual
+
+F_value_list_BO <- map(permanovas_BO_100, 4) # F_value for MeJA_treatment, Block, residual, and total
+F_value_vector_BO <- data.frame(unlist(map(F_value_list_BO, 1))) # F_value values for residual
+
+p_values_list_AT <- map(permanovas_AT_100, 5) # p values for MeJA_treatment and block
+p_values_MeJA_vector_AT <- data.frame(unlist(map(p_values_list_AT, 1))) # p values for MeJA_treatment and block
+
+R2_list_AT <- map(permanovas_AT_100, 3) # R2 for MeJA_treatment, Block, residual, and total
+R2_MeJA_vector_AT <- data.frame(unlist(map(R2_list_AT, 1)))
+
+F_value_list_AT <- map(permanovas_AT_100, 4) # F_value for MeJA_treatment, Block, residual, and total
+F_value_vector_AT <- data.frame(unlist(map(F_value_list_AT, 1))) # F_value values for residual
+
+
+# We have to add some names to columns and variables so we can merge in a dataframe and use ggplot.
+# the code is disgusting but Pedro won't fix it
+p_values_MeJA_vector_AT$Plant_species <- "Arabdopsis_thaliana"
+p_values_MeJA_vector_BO$Plant_species <- "Brassica_oleraceae"
+R2_MeJA_vector_AT$Plant_species <- "Arabdopsis_thaliana"
+R2_MeJA_vector_BO$Plant_species <- "Brassica_oleraceae"
+R2_MeJA_vector_AT$Plant_species <- "Arabdopsis_thaliana"
+R2_MeJA_vector_BO$Plant_species <- "Brassica_oleraceae"
+F_value_vector_AT$Plant_species <- "Arabdopsis_thaliana"
+F_value_vector_BO$Plant_species <- "Brassica_oleraceae"
+
+# set th anme of the statistic
+p_values_MeJA_vector_AT$stat <- "P_values_MeJA"
+p_values_MeJA_vector_BO$stat <- "P_values_MeJA"
+R2_MeJA_vector_AT$stat <- "R2_MeJA"
+R2_MeJA_vector_BO$stat <- "R2_MeJA"
+F_value_vector_AT$stat <- "F_value_MeJA"
+F_value_vector_BO$stat <- "F_value_MeJA"
+
+# set the name of the variable
+names(p_values_MeJA_vector_AT)[1] <- "stat_value"
+names(p_values_MeJA_vector_BO)[1] <- "stat_value"
+names(R2_MeJA_vector_AT)[1] <- "stat_value"
+names(R2_MeJA_vector_BO)[1] <- "stat_value"
+names(F_value_vector_AT)[1] <- "stat_value"
+names(F_value_vector_BO)[1] <- "stat_value"
+
+
+# put it all into a single df
+hundrerd_permanovas_pr2 <- bind_rows(p_values_MeJA_vector_AT, p_values_MeJA_vector_BO, R2_MeJA_vector_AT, R2_MeJA_vector_BO, F_value_vector_AT, F_value_vector_BO)
+``` 
+
+
+
+##### 4a.9.6 plot histograms
+
+
+```{r}
+# this plot shows the P values of 100 permanovas, with dashed lines for the p values in the above-expected model and solid lines with p values in the full-feature model (all ASVS in BO_soil or AT_soil)
+histogram_artefact_p <- ggplot(
+  bind_rows(
+    p_values_MeJA_vector_AT,
+    p_values_MeJA_vector_BO
+  ),
+  aes(
+    x = (log(stat_value)),
+    color = Plant_species,
+    fill = Plant_species
+  )
+) +
+  geom_histogram(
+    position = "identity",
+    alpha = 0.5,
+    bins = 50
+  ) +
+  geom_vline(
+    xintercept = log(permanova_AT_above[[5]][1]), # p values of AT in the above-expected model
+    linetype = "dashed",
+    size = 1.5,
+    colour = "#F8766D"
+  ) + #  color code for the standard second facotr of a ggplot (teal)
+  geom_vline(
+    xintercept = log(permanova_BO_above[[5]][1]), # p values of BO in the above-expected model
+    linetype = "dashed",
+    size = 1.5,
+    colour = "#00BFC4"
+  ) +
+  geom_vline(
+    xintercept = log(full_feature_permanova[[2]][[5]][1]), # p values of AT in the full feature permanova
+    linetype = "dotted",
+    size = 1.5,
+    colour = "#F8766D"
+  ) + #  color code for the standard second facotr of a ggplot (teal)
+  geom_vline(
+    xintercept = log(full_feature_permanova[[4]][[5]][1]), # p values of BO in the full feature permanova
+    linetype = "dotted",
+    size = 1.5,
+    colour = "#00BFC4"
+  ) + #  color code for the standard second facotr of a ggplot (teal)
+  labs(
+    title = "100 PERMANOVAS, dashed neutral, dotted full, p values",
+    x = "Log(p values)",
+    y = "Count"
+  ) +
+  theme_classic() +
+  theme(legend.position = "top")
+
+# this plot shows the R2 values of 100 permanovas, with dashed lines for the R2 values in the above-expected model
+histogram_artefact_R2 <- ggplot(
+  bind_rows(
+    R2_MeJA_vector_AT,
+    R2_MeJA_vector_BO
+  ),
+  aes(
+    x = stat_value,
+    color = Plant_species,
+    fill = Plant_species
+  )
+) +
+  geom_histogram(
+    position = "identity",
+    alpha = 0.5,
+    bins = 50
+  ) +
+  geom_vline(
+    xintercept = permanova_AT_above[[3]][1], # R2 values of AT, in the above-expected model
+    linetype = "dashed",
+    size = 1.5,
+    colour = "#F8766D"
+  ) + #  color code for the standard first facotr of a ggplot (red)
+  geom_vline(
+    xintercept = permanova_BO_above[[3]][1], # R2 values of BO, in the above-expected model
+    linetype = "dashed",
+    size = 1.5,
+    colour = "#00BFC4"
+  ) + #  color code for the standard second facotr of a ggplot (teal)
+  geom_vline(
+    xintercept = full_feature_permanova[[2]][[3]][1], # R2 values of AT in the full feature permanova
+    linetype = "dotted",
+    size = 1.5,
+    colour = "#F8766D"
+  ) + #  color code for the standard second facotr of a ggplot (teal)
+  geom_vline(
+    xintercept = full_feature_permanova[[4]][[3]][1], # R2 values of BO in the full feature permanova
+    linetype = "dotted",
+    size = 1.5,
+    colour = "#00BFC4"
+  ) + #  color code for the standard second facotr of a ggplot (teal)
+
+  labs(
+    title = "100 PERMANOVAS, dashed neutral, dotted full, R2 values",
+    x = "R2 values",
+    y = "Count"
+  ) +
+  theme_classic() +
+  theme(legend.position = "top")
+
+
+# this plot shows the F2 values of 100 permanovas, with dashed lines for the F values in the above-expected model
+histogram_artefact_F <- ggplot(
+  bind_rows(
+    F_value_vector_AT,
+    F_value_vector_BO
+  ),
+  aes(
+    x = stat_value,
+    color = Plant_species,
+    fill = Plant_species
+  )
+) +
+  geom_histogram(
+    position = "identity",
+    alpha = 0.5,
+    bins = 50
+  ) +
+  geom_vline(
+    xintercept = permanova_AT_above[[4]][1], # F2 values of AT, in the above-expected model
+    linetype = "dashed",
+    size = 1.5,
+    colour = "#F8766D"
+  ) + #  color code for the standard second facotr of a ggplot (teal)
+  geom_vline(
+    xintercept = permanova_BO_above[[4]][1], # F2 values of BO, in the above-expected model
+    linetype = "dashed",
+    size = 1.5,
+    colour = "#00BFC4"
+  ) +
+  geom_vline(
+    xintercept = full_feature_permanova[[2]][[4]][1], # F2 values of AT in the full feature permanova
+    linetype = "dotted",
+    size = 1.5,
+    colour = "#F8766D"
+  ) + #  color code for the standard second facotr of a ggplot (teal)
+  geom_vline(
+    xintercept = full_feature_permanova[[4]][[4]][1], # F2 values of BO in the full feature permanova
+    linetype = "dotted",
+    size = 1.5,
+    colour = "#00BFC4"
+  ) + #  color code for the standard second facotr of a ggplot (teal)
+  labs(
+    title = "100 PERMANOVAS, dashed neutral, dotted full, F values",
+    x = "F values",
+    y = "Count"
+  ) +
+  theme_classic() +
+  theme(legend.position = "top")
+
+
+
+# group plots
+histogram_100_permanovas <- ggarrange(histogram_artefact_p,
+  histogram_artefact_R2,
+  histogram_artefact_F,
+  ncol = 3,
+  labels = c("A", "B", "C")
+)
+
+# save plots
+ggsave(histogram_100_permanovas,
+  height = 5, width = 15,
+  file = "./R output/Figures_for_publication/NeutralModel_100_permanovas_histogram.svg"
+)
+```
+
+
+# 4a.11 Alpha Diversity of ASVs selected by neutral models
+
+```{r}
+
+# new ps object, based on rarefied data
+ps_AT_alpha_cor_above <- subset_ps_above_neutral_below(
+  ps_l_predictions_in_taxtable = ps_list_neutral_BO_soil,
+  ps_CSS_partition = ps_list_rarefied$Brassica_oleraceae.Soil
+)[[1]]
+
+ps_BO_alpha_cor_above <- subset_ps_above_neutral_below(
+  ps_l_predictions_in_taxtable = ps_list_neutral_AT_soil,
+  ps_CSS_partition = ps_list_rarefied$Arabidopsis_thaliana.Soil
+)[[1]]
+
+
+
+
+# make list of ps objects
+pslit_neutraly_selected <- list(
+  ps_AT_alpha_cor_above,
+  ps_BO_alpha_cor_above
+)
+
+# adjust anems on that list
+names(pslit_neutraly_selected) <- c(
+  "uni_4model_AT_above",
+  "uni_4model_BO_above"
+)
+
+
+
+# plot diveristy from that list
+lapply(pslit_neutraly_selected, function(x) {
+  plot_richness(x, x = "MeJA_treatment", measures = c("Shannon"), color = "Plant_species") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90)) +
+    labs(color = "Plant species") +
+    ylab("Shannon diversity")
+})
+
+
+
+
+
+
+# calculates alpha diversity
+diversity_list <- lapply(pslit_neutraly_selected, add_diversity_to_physeq_object)
+
+# only o__Rhizobiales
+diversity_list <- lapply(pslit_neutraly_selected, function(x) add_diversity_to_physeq_object(subset_taxa(x, Order == "o__Rhizobiales")))
+
+# only f__Comamonadaceae
+diversity_list <- lapply(pslit_neutraly_selected, function(x) add_diversity_to_physeq_object(subset_taxa(x, Family == "f__Comamonadaceae")))
+
+# check levenes homogeniety over the list
+lapply(diversity_list, function(x) {
+  leveneTest((Shannon) ~ MeJA_treatment * Plant_species, data = x)
+})
+
+# since our initial object has been sliced into multiple parts, the anova is much simpler
+# build model
+aov_list <- lapply(diversity_list, function(x) {
+  aov(lm((Shannon) ~ Block + MeJA_treatment, data = x))
+})
+
+# run anova
+lapply(aov_list, anova)
+
+# check tukey
+lapply(aov_list, function(x) {
+  TukeyHSD(x, "MeJA_treatment")
+})
+
+# Lets see this on a simple boxplot for Shannon diversity index
+ggplot(
+  rbind(
+    diversity_list$AT_above_rerarefied,
+    diversity_list$BO_above_rerarefied
+  ),
+  aes(x = MeJA_treatment, y = Shannon, fill = Plant_species)
+) +
+  geom_boxplot() +
+  theme_bw() +
+  facet_wrap(~Sample_type)
+```
+
+
+# 4a.12  correlate alpha diversity to full dataset to selected ASV dataset
+```{r}
+
+
+# determine shannon diversity and observed number of taxa with a custom function
+diversity_per_taxon <- function(ps_object, taxa_level, data_partition) {
+  # this function provides diversity of each taxon in a phyloseq object in 3 steps
+
+  # the inputs for this function are:
+
+  # 1 - ps_object = one phyloseq object
+  # 2 - taxa_level = a QUOTED taxonomic level in your phyloseq object, like Class or Order
+  # 3 - data_partition = a QUOTED label of your ps_object
+
+  # the output is a df showing observed number fo taxa and shannon diversity within each of the defined taxa_level
+
+  # let's remove the "r__"ranks from the taxonomy, they can be useful but will polute our plot
+  tax_table(ps_object)[, colnames(tax_table(ps_object))] <- gsub(tax_table(ps_object)[, colnames(tax_table(ps_object))], pattern = "[a-z]__", replacement = "")
+
+
+
+  # step 1: list the taxa present in the ps object, at the requested taxon level
+  taxon_list_output <- as.character(tax_table(ps_object)[, taxa_level])
+  taxon_list_output <- taxon_list_output[taxon_list_output != "uncultured"]
+  taxon_list_output <- names(which(table(taxon_list_output) > 0)) %>%
+    na.omit() %>%
+    unique() %>%
+    as.list(c())
+
+
+
+  # step 2: calculate diversity in each member of the taxa level
+  shannon_diversity_l <- list()
+  observed_taxa_l <- list()
+  simpson_diversity_l <- list()
+  for (i in taxon_list_output) {
+    shannon_diversity_l[i] <- estimate_richness(prune_taxa(
+      taxa = tax_table(ps_object)
+      [, taxa_level] %in% i,
+      x = ps_object
+    ),
+    split = FALSE,
+    measures = "Shannon"
+    )
+
+    observed_taxa_l[i] <- estimate_richness(prune_taxa(
+      taxa = tax_table(ps_object)
+      [, taxa_level] %in% i,
+      x = ps_object
+    ),
+    split = FALSE,
+    measures = "Observed"
+    )
+
+    simpson_diversity_l[i] <- estimate_richness(prune_taxa(
+      taxa = tax_table(ps_object)
+      [, taxa_level] %in% i,
+      x = ps_object
+    ),
+    split = FALSE,
+    measures = "Simpson"
+    )
+  }
+
+
+  # step 3: join oserved taxa and shannon diversity in a df
+  shannon_df <- t(as.data.frame(shannon_diversity_l))
+  observed_df <- t(as.data.frame(observed_taxa_l))
+  simpson_df <- t(as.data.frame(simpson_diversity_l))
+  colnames(shannon_df) <- paste0("Shannon_", data_partition, sep = "")
+  colnames(observed_df) <- paste0("Observed_", data_partition, sep = "")
+  colnames(simpson_df) <- paste0("Simpson_", data_partition, sep = "")
+
+  # i had to join the df in separate steps. I'm sure this is not a cleaver way to do it but it works well enought
+  diversity_df <- merge(shannon_df,
+    observed_df,
+    by = 0
+  )
+
+  diversity_df2 <- merge(shannon_df,
+    simpson_df,
+    by = 0
+  )
+
+
+
+  colnames(diversity_df)[1] <- taxa_level
+  colnames(diversity_df2)[1] <- taxa_level
+
+  output <- dplyr::left_join(diversity_df, diversity_df2)
+
+
+
+  return(output)
+}
+
+# it is a bit repetitive but I ran out of time to further automate this
+
+###########################
+####### class level #######
+###########################
+above_expected_Class <- lapply(pslit_neutraly_selected, function(x) {
+  diversity_per_taxon(
+    ps_object = x,
+    taxa_level = "Class",
+    data_partition = "above_expected"
+  )
+})
+
+full_dataset_Class <- lapply(ps_list_rarefied[c(2, 4)], function(x) {
+  diversity_per_taxon(
+    ps_object = x,
+    taxa_level = "Class",
+    data_partition = "full_dataset"
+  )
+})
+
+# join 2 dfs of step 3
+full_VS_selected_Class <- mapply(function(x, y) {
+  left_join(x,
+    y,
+    by = "Class"
+  )
+},
+x = above_expected_Class,
+y = full_dataset_Class,
+SIMPLIFY = FALSE
+)
+
+
+
+
+
+
+###########################
+####### Order level #######
+###########################
+above_expected_Order <- lapply(pslit_neutraly_selected, function(x) {
+  diversity_per_taxon(
+    ps_object = x,
+    taxa_level = "Order",
+    data_partition = "above_expected"
+  )
+})
+
+full_dataset_Order <- lapply(ps_list_rarefied[c(2, 4)], function(x) {
+  diversity_per_taxon(
+    ps_object = x,
+    taxa_level = "Order",
+    data_partition = "full_dataset"
+  )
+})
+
+# join 2 dfs of step 3
+full_VS_selected_Order <- mapply(function(x, y) {
+  left_join(x,
+    y,
+    by = "Order"
+  )
+},
+x = above_expected_Order,
+y = full_dataset_Order,
+SIMPLIFY = FALSE
+)
+
+
+
+
+
+
+###########################
+####### Family level ######
+###########################
+above_expected_Family <- lapply(pslit_neutraly_selected, function(x) {
+  diversity_per_taxon(
+    ps_object = x,
+    taxa_level = "Family",
+    data_partition = "above_expected"
+  )
+})
+
+full_dataset_Family <- lapply(ps_list_rarefied[c(2, 4)], function(x) {
+  diversity_per_taxon(
+    ps_object = x,
+    taxa_level = "Family",
+    data_partition = "full_dataset"
+  )
+})
+
+# join 2 dfs of step 3
+full_VS_selected_Family <- mapply(function(x, y) {
+  left_join(x,
+    y,
+    by = "Family"
+  )
+},
+x = above_expected_Family,
+y = full_dataset_Family,
+SIMPLIFY = FALSE
+)
+
+####################################################
+####### Done! Diversity per taxon calculated #######
+####################################################
+
+
+# final output from divesity per taxon calculation
+full_VS_selected_Class
+full_VS_selected_Order
+full_VS_selected_Family
+
+
+# make plot - correlation between observed umber of taxa in the full data VS selected subset
+plot_observed_correlation <- function(full_VS_selected_TaxaLevel) {
+  untitled_plot_list <- lapply(full_VS_selected_TaxaLevel, function(z) {
+    ggplot(data = z, aes(x = Observed_full_dataset, y = Observed_above_expected)) +
+      geom_point() +
+      theme_bw() +
+      theme(axis.title = element_text(size = 11, face = "bold")) +
+      xlab(label = "Number of taxa in full dataset") +
+      ylab(label = "Number of taxa in above-expected subset") +
+      geom_smooth(method = "loess") + # values of y are based on the values of x
+      geom_text_repel(aes(label = z[z$Observed_above_expected > 10, 1]), data = z[z$Observed_above_expected > 10, ], size = 3)
+  })
+
+  tiles_list <- names(untitled_plot_list)
+
+  Plot_list <- mapply(function(x, z) { # use mapply again to put those listed names in the list of plots
+    x + ggtitle(z)
+  },
+  x = untitled_plot_list,
+  z = tiles_list,
+  SIMPLIFY = FALSE
+  )
+  return(Plot_list)
+}
+
+plot_l_obs_Class <- plot_observed_correlation(full_VS_selected_Class)
+plot_l_obs_Order <- plot_observed_correlation(full_VS_selected_Order)
+plot_l_obs_Family <- plot_observed_correlation(full_VS_selected_Family)
+
+
+
+
+
+plot_shannon_correlation <- function(full_VS_selected_TaxaLevel) {
+  untitled_plot_list <- lapply(full_VS_selected_TaxaLevel, function(z) {
+    ggplot(
+      data = z[z$Shannon_above_expected > 0, ], # only includes shannon >0
+      aes(x = Shannon_full_dataset, y = Shannon_above_expected)
+    ) +
+      geom_point() +
+      theme_bw() +
+      theme(axis.title = element_text(size = 11, face = "bold")) +
+      xlab(label = "Shannon diversity in full dataset") +
+      ylab(label = "Shannon diversity in above-expected subset") +
+      geom_smooth(method = "loess") + # values of y are based on the values of x
+      geom_text_repel(aes(label = z[z$Shannon_above_expected > 0, 1]), data = z[z$Shannon_above_expected > 0, ], size = 3)
+  })
+
+  tiles_list <- names(untitled_plot_list)
+
+  Plot_list <- mapply(function(x, z) { # use mapply again to put those listed names in the list of plots
+    x + ggtitle(z)
+  },
+  x = untitled_plot_list,
+  z = tiles_list,
+  SIMPLIFY = FALSE
+  )
+  return(Plot_list)
+}
+
+plot_l_Shan_Class <- plot_shannon_correlation(full_VS_selected_Class)
+plot_l_Shan_Order <- plot_shannon_correlation(full_VS_selected_Order)
+plot_l_Shan_Family <- plot_shannon_correlation(full_VS_selected_Family)
+
+
+
+
+plot_simpson_correlation <- function(full_VS_selected_TaxaLevel) {
+  untitled_plot_list <- lapply(full_VS_selected_TaxaLevel, function(z) {
+    ggplot(
+      data = z[z$Simpson_above_expected > 0, ], # only includes shannon >0
+      aes(x = Simpson_full_dataset, y = Simpson_above_expected)
+    ) +
+      geom_point() +
+      theme_bw() +
+      theme(axis.title = element_text(size = 11, face = "bold")) +
+      xlab(label = "Simpson diversity in full dataset") +
+      ylab(label = "Simpson diversity in above-expected subset") +
+      geom_smooth(method = "loess") + # values of y are based on the values of x
+      geom_text_repel(aes(label = z[z$Simpson_above_expected > 0, 1]), data = z[z$Simpson_above_expected > 0, ], size = 3)
+  })
+
+  tiles_list <- names(untitled_plot_list)
+
+  Plot_list <- mapply(function(x, z) { # use mapply again to put those listed names in the list of plots
+    x + ggtitle(z)
+  },
+  x = untitled_plot_list,
+  z = tiles_list,
+  SIMPLIFY = FALSE
+  )
+  return(Plot_list)
+}
+
+plot_l_Simp_Class <- plot_simpson_correlation(full_VS_selected_Class)
+plot_l_Simp_Order <- plot_simpson_correlation(full_VS_selected_Order)
+plot_l_Simp_Family <- plot_simpson_correlation(full_VS_selected_Family)
+
+
+
+# check how much$ of the taxa diversity is retained
+
+full_VS_selected_Order$uni_4model_BO_above$Observed_above_expected / full_VS_selected_Order$uni_4model_BO_above$Observed_full_dataset
+
+
+# the loop for testing in each taxonomy class was not working properly, so i deleted the code for it! AT and BO data partions are being overwirnt on top of each other
+```
+
+
+#4a.13 Figures
+```{r}
+
+library(gridExtra)
+
+# Family
+plot_AlphaCorr_Family <- grid.arrange(plot_l_obs_Family$uni_4model_AT_above, plot_l_Shan_Family$uni_4model_AT_above, plot_l_Simp_Family$uni_4model_AT_above, plot_l_obs_Family$uni_4model_BO_above, plot_l_Shan_Family$uni_4model_BO_above, plot_l_Simp_Family$uni_4model_BO_above, nrow = 3, ncol = 3)
+
+# save plot
+ggsave(plot_AlphaCorr_Family,
+  height = 12, width = 18,
+  file = "./R output/Figures_for_publication/NeutralModel_AlphaCorr_Family_AT_BO.svg"
+)
+
+
+# Order
+plot_AlphaCorr_Order <- grid.arrange(plot_l_obs_Order$uni_4model_AT_above, plot_l_Shan_Order$uni_4model_AT_above, plot_l_Simp_Order$uni_4model_AT_above, plot_l_obs_Order$uni_4model_BO_above, plot_l_Shan_Order$uni_4model_BO_above, plot_l_Simp_Order$uni_4model_BO_above, nrow = 3, ncol = 3)
+
+# save plot
+ggsave(plot_AlphaCorr_Order,
+  height = 12, width = 18,
+  file = "./R output/Figures_for_publication/NeutralModel_AlphaCorr_Order_AT_BO.svg"
+)
+
+
+# Class
+plot_AlphaCorr_Class <- grid.arrange(plot_l_obs_Class$uni_4model_AT_above, plot_l_Shan_Class$uni_4model_AT_above, plot_l_Simp_Class$uni_4model_AT_above, plot_l_obs_Class$uni_4model_BO_above, plot_l_Shan_Class$uni_4model_BO_above, plot_l_Simp_Class$uni_4model_BO_above, nrow = 3, ncol = 3)
+
+# save plot
+ggsave(plot_AlphaCorr_Class,
+  height = 12, width = 18,
+  file = "./R output/Figures_for_publication/NeutralModel_AlphaCorr_Class_AT_BO.svg"
+)
+```
+
+
+
+# 4a.14 overwrite saved session
+
+```{r}
+
+save.image("./R output/analysis_session.RData")
+```
+
+
+ Neutral model analysis finished. Proceed to script 4b_neutral_models_endosphere!

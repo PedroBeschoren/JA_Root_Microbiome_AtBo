@@ -1,0 +1,327 @@
+---
+title: "Untitled"
+author: "Marcela Aragon"
+date: "2025-03-01"
+output: html_document
+---
+
+
+#Load libraries 
+```{r}
+#Handling data 
+library("dplyr")
+library("tibble")
+library("stringr")  # to wrangle string vectors
+library("tidyr")
+library("ggrepel")  # to avoid legends overlapping in your plot
+library("ggpubr")
+library("purrr")  # has map() to select table elements
+```
+
+#Settings for plots
+```{r}
+#Set plots theme
+ggplot2::theme_set(theme_bw())
+
+# Set default axis looks
+axis_looks <- theme(axis.text.x = element_text(colour = "black", size = 9,
+                                               face = "bold", angle=0, hjust=0.5))+ #text in X
+  theme(axis.text.y = element_text(colour = "black", size = 9, face = "bold"))+ #text in y
+  theme(axis.title=element_text(size=11, face = "bold"))+ #all texts
+  theme(axis.title.y = element_text(margin = ggplot2::margin(t = 0, r = 10, b = 0, l = 0)))+
+  theme(panel.grid.major = element_blank(), #no grid
+        panel.grid.minor = element_blank()) #no grid
+
+#Set colors
+color_treatments <- c("#d7d7d7", "#f2c476", "#bd5a28", "#7aaf91") #"Control", "MeJA 0.1mM", "MeJA 1mM", "P. brassicae OS"
+color_species <- c("#006c3a", "#309190") #at & bo, respectively
+color_compartment <- c("#B28F45", "#846475") #endo & rhizo, respectively (not really used)
+```
+
+
+
+#Loading data
+```{r}
+
+#[MA] load DA results
+DA_results <- readRDS("./R output/05_differential_abundance/DA_ASVs.rds")
+
+#Change the name to list 
+DA_ASV_list <- DA_results
+
+#[MA] Let's change the names 
+names(DA_ASV_list) <- c("Arabidopsis_thaliana.Root", "Arabidopsis_thaliana.Soil", "Brassica_oleraceae.Root", "Brassica_oleraceae.Soil")
+
+#[MA] load NA results
+NA_results <- readRDS("./R output/06_network_analysis/NA_ASVs.rds")
+
+#[MA] Change names
+NA_ASV_list <- NA_results
+names(NA_ASV_list) <- c("Arabidopsis_thaliana.Root", "Brassica_oleraceae.Root", "Arabidopsis_thaliana.Soil",  "Brassica_oleraceae.Soil")
+
+#[MA] Finally 3. Random Forest
+
+#[MA] load RF results
+RF_results <- readRDS("./R output/07_random_forest/RF_ASVs.rds")
+
+#[MA] Change names
+RF_ASV_list <- RF_results
+
+names(RF_ASV_list) <- c("Arabidopsis_thaliana.Root", "Arabidopsis_thaliana.Soil", "Brassica_oleraceae.Root",  "Brassica_oleraceae.Soil")
+
+
+#let's save it into a list 
+important_ASV_list <- list(DA_ASV_list = DA_ASV_list, 
+                           NA_ASV_list = NA_ASV_list,
+                           RF_ASV_list = RF_ASV_list)
+
+saveRDS(important_ASV_list, "./R output/10_summary_results/important_ASV_list.rds")
+
+```
+
+Also get a single df with all of the info, could be used later.
+```{r}
+
+# 1. DA
+da_df <- DA_ASV_list %>%
+  enframe(name = "Group", value = "ASV") %>% 
+  unnest(ASV) %>% 
+  separate(Group, into = c("Species", "Compartment"), sep = "\\.") %>%
+  mutate(Method = "DA")
+
+# 2. Network Analysis
+na_df <- NA_ASV_list %>%
+  enframe(name = "Group", value = "ASV") %>% 
+  unnest(ASV) %>% 
+  separate(Group, into = c("Species", "Compartment"), sep = "\\.") %>%
+  mutate(Method = "NetA")
+
+# 3. Random Forest
+rf_df <- RF_ASV_list %>%
+  enframe(name = "Group", value = "ASV") %>% 
+  unnest(ASV) %>% 
+  separate(Group, into = c("Species", "Compartment"), sep = "\\.") %>%
+  mutate(Method = "RF")
+
+#merge into a single df 
+full_important_df <- rbind(da_df , na_df, rf_df)
+
+full_important_df <- full_important_df %>%  relocate(ASV) %>% dplyr::rename(Plant_Species= Species)
+
+#check
+unique(full_important_df$ASV) #224 unique ASVs, okay
+
+#make it wide 
+library(tidyr)
+
+full_important_df_wide <- full_important_df %>%
+  mutate(Presence = TRUE) %>%  # Add a flag to fill in the wide table
+  tidyr::unite("Group", Plant_Species, Compartment, Method, sep = "_") %>%  # Combine Species, Compartment, Method into 1 col
+  tidyr::pivot_wider(names_from = Group, values_from = Presence, values_fill = FALSE)
+
+colnames(full_important_df_wide) #check colnames, too long
+
+colnames(full_important_df_wide) <- colnames(full_important_df_wide) %>%
+  str_replace_all("Arabidopsis_thaliana", "AT") %>%
+  str_replace_all("Brassica_oleraceae", "BO")
+
+# Check the result
+colnames(full_important_df_wide)
+
+#check those that are present in more than one combination
+full_important_df_wide %>%
+  rowwise() %>%
+  mutate(Presence_Count = sum(c_across(starts_with("AT_") | starts_with("BO_")))) %>%
+  ungroup() %>%
+  filter(Presence_Count >1) %>%
+  as.data.frame()
+
+```
+
+Add taxonomy table
+
+```{r}
+
+physeq_filtered <- readRDS("./R output/01_phyloseq_objects/physeq_filtered.rds") #full ps object 
+tax_table_df <- data.frame(tax_table(physeq_filtered))
+
+#let's clean it up
+head(tax_table_df)
+
+# Columns that need cleaning
+taxonomy_cols <- c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+
+# Remove prefixes (e.g., "d__", "p__", etc.) from each taxonomy column
+tax_table_df_cleaned <- tax_table_df %>%
+  mutate(across(all_of(taxonomy_cols), ~str_remove(.x, "^[a-z]__")))%>%
+  rownames_to_column("ASV")
+
+#join df's
+
+#long df 
+full_important_df_tax <- left_join(full_important_df, tax_table_df_cleaned, by="ASV")
+head(full_important_df_tax)
+
+#wide df 
+full_important_df_wide <- left_join(full_important_df, tax_table_df_cleaned, by="ASV")
+
+#save them
+write.csv(full_important_df_tax, "./R output/10_summary_results/important_ASVs_with_taxonomy_long.csv")
+write.csv(full_important_df_wide , "./R output/10_summary_results/important_ASVs_with_taxonomy_wide.csv")
+
+#clean up
+rm(physeq_filtered)
+```
+
+[MA] maybe later think to add for those of DA, whether they come from meja 0.1, 1 or OS, as well for RF
+
+
+#UpsetR plots[Fig.S7]
+```{r}
+
+library(UpSetR)
+library(ComplexUpset)
+library(tibble)
+
+
+#[MA] call function  adding a Dummy variable with value of 85, so all axis are the same in between plots.
+make_upset_plot_complexDummy <- function(da_list, na_list, rf_list, species, compartment) {
+  subcommunity_name <- paste(species, compartment, sep = ".")
+
+  # Safety check
+  if (!(subcommunity_name %in% names(da_list) &&
+        subcommunity_name %in% names(na_list) &&
+        subcommunity_name %in% names(rf_list))) {
+    stop(paste0("Subcommunity '", subcommunity_name, "' not found in one or more lists"))
+  }
+
+  # Get ASVs per method
+  da_asvs <- da_list[[subcommunity_name]]
+  na_asvs <- na_list[[subcommunity_name]]
+  rf_asvs <- rf_list[[subcommunity_name]]
+
+  # Combine all unique ASVs across methods
+  all_asvs <- unique(c(da_asvs, na_asvs, rf_asvs))
+
+  # Build tidy presence/absence tibble
+  upset_data <- tibble(
+    ASV = all_asvs,
+    DA = ASV %in% da_asvs,
+    NetA = ASV %in% na_asvs,
+    RF = ASV %in% rf_asvs
+  )
+
+  # Add dummy rows to force the y-axis to go up to 85
+  dummy_data <- tibble(
+    ASV = paste0("dummy_", 1:85),  # 85 dummy ASVs (1 per "bar count")
+    DA = FALSE, NetA = FALSE, RF = FALSE  # Not present in any method
+  )
+
+  upset_data <- bind_rows(upset_data, dummy_data)
+
+  # Generate UpSet plot using ComplexUpset
+  upset_plot <- ComplexUpset::upset(
+    upset_data,
+    intersect = c("DA", "NetA", "RF"),
+    name = "Method",
+    width_ratio = 0.25,
+    sort_sets = FALSE
+  ) +
+    labs(title = paste(species, compartment, "- ASV Overlap"))
+
+  return(upset_plot)
+}
+
+
+#[MA] plot it
+upset_AtRoot <- make_upset_plot_complexDummy(DA_ASV_list, NA_ASV_list, RF_ASV_list, 
+                        species = "Arabidopsis_thaliana", 
+                        compartment = "Root")
+
+
+upset_AtSoil <- make_upset_plot_complexDummy(DA_ASV_list, NA_ASV_list, RF_ASV_list, 
+                        species = "Arabidopsis_thaliana", 
+                        compartment = "Soil")
+
+
+upset_BoRoot <- make_upset_plot_complexDummy(DA_ASV_list, NA_ASV_list, RF_ASV_list, 
+                        species = "Brassica_oleraceae", 
+                        compartment = "Root")
+
+upset_BoSoil <- make_upset_plot_complexDummy(DA_ASV_list, NA_ASV_list, RF_ASV_list, 
+                        species = "Brassica_oleraceae", 
+                        compartment = "Soil")
+
+
+ggarrange(upset_AtRoot, upset_BoRoot, upset_AtSoil, upset_BoSoil, nrow=2, ncol=2)
+
+#[MA] save plot [Figure S7]
+mapply(function(x)
+  ggsave(
+  plot = last_plot(),
+  filename =x,
+  path = "./Plots/10_summary_results",
+  scale = 2,
+  width = 1200,
+  height = 1100,
+  units = "px",
+  dpi = 300),
+x=c("upset.svg","upset.png"))
+
+
+```
+
+Make overall UpsetR plot (Not used)
+```{r}
+
+# Combine ASVs across all compartments and species
+all_DA_ASVs <- unique(unlist(DA_ASV_list))
+all_NA_ASVs <- unique(unlist(NA_ASV_list))
+all_RF_ASVs <- unique(unlist(RF_ASV_list))
+
+# Combine all unique ASVs detected by any method
+all_ASVs <- unique(c(all_DA_ASVs, all_NA_ASVs, all_RF_ASVs)) #224 unique ones, ok
+
+# Build tidy presence/absence tibble
+upset_data_global <- tibble(
+  ASV = all_ASVs,
+  DA = ASV %in% all_DA_ASVs,
+  NetA = ASV %in% all_NA_ASVs,
+  RF = ASV %in% all_RF_ASVs)
+
+
+# Create global UpSet plot
+upset_global <- ComplexUpset::upset(
+  upset_data_global,
+  intersect = c("DA", "NetA", "RF"),
+  name = "Method",
+  width_ratio = 0.25,
+  sort_sets = FALSE) +
+  labs(title = "Overall ASV Overlap Across Methods (Global)") #very few shared 
+
+upset_global
+
+
+#[MA] save plot
+mapply(function(x)
+  ggsave(
+  plot = last_plot(),
+  filename =x,
+  path = "./Plots/10_summary_results",
+  scale = 2,
+  width = 7,
+  height = 5,
+  units = "cm",
+  dpi = 300),
+x=c("upset_overall.svg","upset_overall.png"))
+
+```
+
+
+#Save data
+```{r}
+save.image("./R output/env.10_summary_results.RData")
+```
+
+
+The end! :)
