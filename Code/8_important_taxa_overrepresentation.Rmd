@@ -99,23 +99,6 @@ sapply(NA_ASV_list, length) #ok
 ```
 
 
-```{r}
-
-
-
-#Now 2. Network Analysis
-head(NA_results)
-NA_list <- split(NA_results, NA_results$Sub_community)
-names(NA_list) <- c("Arabidopsis_thaliana.Root", "Arabidopsis_thaliana.Soil", "Brassica_oleraceae.Root", "Brassica_oleraceae.Soil")
-
-#get only ASV names
-NA_ASV_list <- lapply(NA_list, function(df) {
-  unique(df$Row.names)  # this is where your ASVs are stored
-})
-names(NA_ASV_list)
-
-```
-
 ##RF
 ```{r}
 #[MA] Finally 3. Random Forest
