@@ -83,67 +83,6 @@ sapply(DA_ASV_list, length) #ok
 ```
 
 
-```{r}
-
-
-#these results are splited by stress 
-lapply(DA_results$meja0.1, function(df){head(df)})
-DA_results$meja1
-DA_results$caterpillarOS
-
-#let's only keep the df's
-DA_results <- list(meja0.1 = DA_results$meja0.1, meja1=DA_results$meja1, caterpillarOS = DA_results$caterpillarOS)
-
-#make a function to do the reshuffling
-combine_DA_results <- function(DA_results) {
-  
-  # List of treatments
-  treatments <- c("meja0.1", "meja1", "caterpillarOS")
-  
-  # Sub-community names (assumes all treatments have the same sub-community names)
-  sub_communities <- names(DA_results$meja0.1)
-  
-  # Function to convert rownames to ASV column and add treatment name
-  prepare_DA_df <- function(df, treatment) {
-    df <- df %>%
-      rownames_to_column(var = "ASV") %>%
-      mutate(treatment = treatment)
-    return(df)
-  }
-  
-  # Initialize empty list to hold merged data per sub-community
-  merged_DA_list <- setNames(vector("list", length(sub_communities)), sub_communities)
-  
-  # Loop through each sub-community
-  for (sub_community in sub_communities) {
-    
-    # Combine DA results across treatments
-    combined_df <- bind_rows(
-      prepare_DA_df(DA_results$meja0.1[[sub_community]], "meja0.1"),
-      prepare_DA_df(DA_results$meja1[[sub_community]], "meja1"),
-      prepare_DA_df(DA_results$caterpillarOS[[sub_community]], "caterpillarOS")
-    )
-    
-    # Store combined dataframe in list
-    merged_DA_list[[sub_community]] <- combined_df
-  }
-  
-  return(merged_DA_list)
-}
-
-#apply it :)
-DA_list <- combine_DA_results(DA_results)
-names(DA_list) <-  c("Arabidopsis_thaliana.Root", "Arabidopsis_thaliana.Soil", "Brassica_oleraceae.Root", "Brassica_oleraceae.Soil")
-
-#get only ASV names
-DA_ASV_list <- lapply(DA_list, function(df) {
-  unique(df$ASV)
-})
-
-DA_ASVs
-
-```
-
 ##NA
 ```{r}
 
