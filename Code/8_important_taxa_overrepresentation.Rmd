@@ -118,18 +118,6 @@ sapply(RF_ASV_list, length) #ok
 ```
 
 ```{r}
-RF_results$at_soil$combined_df
-
-RF_list<- list(Arabidopsis_thaliana.Root = RF_results$at_root$combined_df,
-                   Arabidopsis_thaliana.Soil = RF_results$at_soil$combined_df,
-                   Brassica_oleraceae.Root = RF_results$bo_root$combined_df,
-                   Brassica_oleraceae.Soil = RF_results$bo_soil$combined_df)
-
-#get only ASV names
-RF_ASV_list <- lapply(RF_list, function(df) {
-  unique(df$ASV)  # this is where your ASVs are stored
-})
-names(RF_ASV_list)
 
 #let's see what we have
 DA_ASV_list
